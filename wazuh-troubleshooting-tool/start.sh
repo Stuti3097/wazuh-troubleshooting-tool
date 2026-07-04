@@ -1,5 +1,5 @@
 #!/bin/bash
-BASE="/home/vagrant/wazuh-troubleshooting-tool"
+BASE="/home/vagrant/wazuh-troubleshooting_backup/wazuh-troubleshooting-tool"
 
 # Extract server config using python safely
 HOST=$(python3 -c '

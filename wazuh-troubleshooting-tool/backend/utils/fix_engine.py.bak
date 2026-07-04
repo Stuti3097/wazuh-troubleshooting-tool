@@ -78,7 +78,6 @@ class FixEngine:
             "dashboard": d_ip,
             "match":     (c_ip == i_ip == d_ip),
         }
-
     # -----------------------------------------
     # FULL IP CHECK
     # -----------------------------------------
@@ -99,7 +98,6 @@ class FixEngine:
             result += "\n\n[OK] IP configuration looks correct."
 
         return result
-
     # -----------------------------------------
     # GET CERT PATHS FROM DASHBOARD CONFIG
     # -----------------------------------------
@@ -116,7 +114,6 @@ class FixEngine:
     @staticmethod
     def list_cert_files():
         return run_command("ls -lrt /etc/wazuh-dashboard/certs") or ""
-
     # -----------------------------------------
     # CHECK CERT PERMISSIONS
     # -----------------------------------------
@@ -136,7 +133,7 @@ class FixEngine:
             f"Certificate files:\n{files}"
         )
 
-    # -----------------------------------------
+        # -----------------------------------------
     # CHECK CERT PATHS
     # -----------------------------------------
     @staticmethod
@@ -149,7 +146,6 @@ class FixEngine:
             f"Configured cert paths:\n{paths}\n\n"
             f"Available cert files:\n{files}"
         )
-
     # -----------------------------------------
     # FIX CERT PERMISSIONS
     # -----------------------------------------
@@ -175,38 +171,19 @@ class FixEngine:
         return f"Restart output:\n{out}\nStatus after restart: {status}"
 
     # -----------------------------------------
-    # RESTART INDEXER AND WAIT FOR ACTIVE STATE
-    # Returns the final status string ("active", "failed", etc.)
-    # -----------------------------------------
-    @staticmethod
-    def restart_indexer_and_wait(max_attempts=5, delay=2):
-        import time
-
-        run_command("systemctl restart wazuh-indexer")
-
-        status = ""
-        for _ in range(max_attempts):
-            time.sleep(delay)
-            status = (run_command("systemctl is-active wazuh-indexer") or "").strip()
-            if status == "active":
-                break
-
-        return status
-
-    # -----------------------------------------
     # DASHBOARD STATUS
     # -----------------------------------------
     @staticmethod
     def status_dashboard():
         return run_command("systemctl is-active wazuh-dashboard") or "unknown"
 
+
     # -----------------------------------------
-    # INDEXER STATUS
+    # DASHBOARD STATUS
     # -----------------------------------------
     @staticmethod
     def status_indexer():
         return run_command("systemctl is-active wazuh-indexer") or "unknown"
-
     # -----------------------------------------
     # CONNECTIVITY CHECK
     # -----------------------------------------
@@ -270,8 +247,7 @@ class FixEngine:
             "Then restart:\n"
             "  systemctl restart wazuh-indexer"
         )
-
-    # -------------------------------------------------------------------------
+        # -------------------------------------------------------------------------
     # FIX JVM HEAP
     # -------------------------------------------------------------------------
     @staticmethod
@@ -297,7 +273,6 @@ class FixEngine:
         ) or "(could not read)"
 
         return updated
-
     # -----------------------------------------
     # SECURITY INIT COMMAND
     # -----------------------------------------
@@ -358,113 +333,3 @@ class FixEngine:
             "journalctl -u wazuh-indexer --since '1 hour ago' "
             "| grep -i -E 'error|warn'"
         )
-
-    # -----------------------------------------
-    # CHECK INDEXER IP (control vs opensearch.yml)
-    # -----------------------------------------
-    @staticmethod
-    def check_indexer_ip():
-        control = FixEngine.get_control_ip()
-        indexer = FixEngine.get_indexer_ip()
-
-        c_ip = FixEngine.extract_ip(control)
-        i_ip = FixEngine.extract_ip(indexer)
-
-        return {
-            "c_ip":  c_ip,
-            "i_ip":  i_ip,
-            "match": bool(c_ip and i_ip and c_ip == i_ip),
-        }
-
-    # -----------------------------------------
-    # FIX INDEXER IP (auto correct) + restart, waits for active
-    # -----------------------------------------
-    @staticmethod
-    def fix_indexer_ip(c_ip):
-        run_command(
-            f"sed -i 's/^network.host:.*/network.host: {c_ip}/' "
-            "/etc/wazuh-indexer/opensearch.yml"
-        )
-        return FixEngine.restart_indexer_and_wait()
-
-    # -----------------------------------------
-    # CHECK INDEXER CERT PATHS
-    # -----------------------------------------
-    @staticmethod
-    def check_indexer_cert_paths():
-        paths_raw = run_command(
-            "grep -E 'pemkey_filepath|pemcert_filepath|pemtrustedcas_filepath' "
-            "/etc/wazuh-indexer/opensearch.yml"
-        ) or ""
-
-        files_raw = run_command("ls /etc/wazuh-indexer/certs") or ""
-
-        configured = []
-        for line in paths_raw.splitlines():
-            if ":" in line:
-                val = line.split(":", 1)[1].strip()
-                configured.append(val.split("/")[-1])
-
-        actual  = [f.strip() for f in files_raw.splitlines() if f.strip()]
-        missing = [f for f in configured if f not in actual]
-
-        return {
-            "paths_raw": paths_raw,
-            "files_raw": files_raw,
-            "missing":   missing,
-        }
-
-    # -----------------------------------------
-    # FIX INDEXER CERT PATHS (auto correct) + restart, waits for active
-    # -----------------------------------------
-    @staticmethod
-    def fix_indexer_cert_paths():
-        actual_files = run_command("ls /etc/wazuh-indexer/certs") or ""
-        actual = [f.strip() for f in actual_files.splitlines() if f.strip()]
-
-        key  = next((f for f in actual if "key" in f and "admin" not in f), None)
-        cert = next((f for f in actual if "key" not in f and "root" not in f
-                     and "admin" not in f), None)
-        ca   = next((f for f in actual if "root-ca" in f), None)
-
-        if not (key and cert and ca):
-            return {"success": False}
-
-        base = "/etc/wazuh-indexer/certs"
-        cmds = [
-            f"sed -i 's|pemcert_filepath:.*|pemcert_filepath: {base}/{cert}|g' "
-            "/etc/wazuh-indexer/opensearch.yml",
-            f"sed -i 's|pemkey_filepath:.*|pemkey_filepath: {base}/{key}|g' "
-            "/etc/wazuh-indexer/opensearch.yml",
-            f"sed -i 's|pemtrustedcas_filepath:.*|pemtrustedcas_filepath: {base}/{ca}|g' "
-            "/etc/wazuh-indexer/opensearch.yml",
-        ]
-        for cmd in cmds:
-            run_command(cmd)
-
-        status = FixEngine.restart_indexer_and_wait()
-
-        return {"success": True, "cert": cert, "key": key, "ca": ca, "status": status}
-
-    # -----------------------------------------
-    # CHECK JVM HEAP (current vs recommended)
-    # -----------------------------------------
-    @staticmethod
-    def check_jvm_heap():
-        current = run_command(
-            "grep -E '^-Xms|^-Xmx' /etc/wazuh-indexer/jvm.options"
-        ) or "(could not read)"
-
-        total_kb = run_command(
-            "grep MemTotal /proc/meminfo | awk '{print $2}'"
-        ) or "0"
-
-        try:
-            total_gb = round(int(total_kb.strip()) / 1024 / 1024)
-        except ValueError:
-            total_gb = 0
-
-        heap_gb = max(1, total_gb // 2)
-
-        return {"current": current, "total_gb": total_gb, "recommended_heap": heap_gb}
-
